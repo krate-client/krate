@@ -346,6 +346,7 @@ jobs:
           GIT_AUTHOR: ${{ secrets.GIT_AUTHOR }}
           GIT_EMAIL: ${{ secrets.GIT_EMAIL }}
         run: |
+          apt-get install -y --no-install-recommends nodejs npm
           clone_url() {
             printf 'https://x-access-token:%s@github.com/krate-client/docs.git' \
               "${GITHUB_TOKEN}"
@@ -355,7 +356,8 @@ jobs:
             --docs-repo "$(clone_url)" \
             --version "${KRATE_VERSION}" \
             --tag "${RELEASE_TAG}" \
-            --channel "${{ inputs.channel }}"
+            --channel "${{ inputs.channel }}" \
+            --contributors-json dist/deb/RELEASE_CONTRIBUTORS.json
 
   install-test:
     needs: build-deb
