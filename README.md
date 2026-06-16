@@ -1,0 +1,68 @@
+# KRATE
+
+Official downloads for [KRATE](https://krate.github.io/docs/) on Debian: installable `.deb` packages, checksums, release manifest, and changelogs.
+
+**License:** [BSD-3-Clause](LICENSE)
+
+This repository is the **entry point** for installing and updating KRATE on your server. Source code for each component lives in separate repositories; this repo only publishes built packages.
+
+## Role in the stack
+
+| Layer | Responsibility |
+|---|---|
+| **`krate`** (this repo) | Package downloads, release tags, `krate-release.json` manifest |
+| [`console`](https://github.com/krate-client/console) | `zen` / `zenfw` — host operations and self-update |
+| [`setup`](https://github.com/krate-client/setup) | First-install wizard |
+| [`web`](https://github.com/krate-client/web) | HarmonyUI dashboard |
+| [`apps-official`](https://github.com/krate-client/apps-official) / [`apps-community`](https://github.com/krate-client/apps-community) | Application catalogs shipped inside the package |
+
+## Install
+
+Pick a build from [GitHub Releases](https://github.com/krate-client/krate/releases):
+
+| Channel | Tag pattern | Use when |
+|---|---|---|
+| **stable** | `v1.2.3` | Production servers |
+| **pre-release** | `v1.2.3-alpha.N` | Testing upcoming changes |
+
+Each release ships one `.deb` per enabled platform (filename includes the OS codename, e.g. `krate_1.2.3-trixie_amd64.deb`), a `SHA256SUMS` file, and `krate-release.json`.
+
+```bash
+wget https://github.com/krate-client/krate/releases/download/<tag>/krate_<version>-trixie_amd64.deb
+sha256sum -c SHA256SUMS
+sudo dpkg -i krate_<version>-trixie_amd64.deb
+```
+
+Then configure `/root/krate.conf` and run [`setup`](https://github.com/krate-client/setup).
+
+## Update
+
+On an installed host, `zen pull` reads `krate-release.json`, verifies the checksum, and installs the matching `.deb` for your platform:
+
+```bash
+zen pull --check    # report available update without installing
+zen pull            # download and install
+```
+
+Set `update_channel` in `/etc/krate/environment.d/zenfw.conf` (or `zenfw.conf.local`) to choose **stable** or **pre-release** updates.
+
+## What is in the package
+
+The `krate` `.deb` bundles zen, zenfw, setup, HarmonyUI, and official and community application catalogs.
+
+| Component | Repository |
+|---|---|
+| Console (zen / zenfw) | [console](https://github.com/krate-client/console) |
+| First-install wizard | [setup](https://github.com/krate-client/setup) |
+| Web interface | [web](https://github.com/krate-client/web) |
+| Official apps | [apps-official](https://github.com/krate-client/apps-official) |
+| Community apps | [apps-community](https://github.com/krate-client/apps-community) |
+
+Optional add-ons and plugins for individual apps live in [`apps-extensions`](https://github.com/krate-client/apps-extensions) — not bundled in the core package.
+
+Release changelogs are also published to [`docs`](https://github.com/krate-client/docs) under `docs/changelogs/`.
+
+## Documentation
+
+- [KRATE documentation](https://krate.github.io/docs/)
+- [Versioning rules](https://github.com/krate-client/tooling/blob/main/VERSIONING.md) (maintainers)

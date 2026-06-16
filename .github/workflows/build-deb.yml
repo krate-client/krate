@@ -1,0 +1,388 @@
+name: Build KRATE Deb (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Release channel"
+        required: true
+        default: "stable"
+        type: choice
+        options:
+          - stable
+          - pre-release
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+    permissions:
+      contents: write
+    outputs:
+      package_version: ${{ steps.version.outputs.package_version }}
+      krate_version: ${{ steps.version.outputs.krate_version }}
+      codename: ${{ steps.version.outputs.codename }}
+      release_tag: ${{ steps.release-meta.outputs.release_tag }}
+
+    steps:
+      - name: Install git for checkout
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Checkout krate repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.KRATE_RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.KRATE_RELEASE_BOT_PRIVATE_KEY }}
+          owner: krate-client
+          repositories: |
+            tooling
+            console
+            setup
+            web
+            apps-official
+            apps-official-source
+            apps-community
+            apps-extensions
+            docs
+            krate
+
+      - name: Checkout release tools
+        uses: actions/checkout@v4
+        with:
+          repository: krate-client/tooling
+          token: ${{ steps.app-token.outputs.token }}
+          path: .tooling
+
+      - name: Prepare tooling scripts
+        run: chmod +x .tooling/scripts/*.sh
+
+      - name: Install build tooling
+        run: |
+          apt-get install -y \
+            build-essential cmake pkg-config python3 python3-yaml \
+            ninja-build ccache \
+            debhelper dh-make dpkg-dev devscripts \
+            libyaml-cpp-dev libssl-dev libsqlite3-dev \
+            libspdlog-dev nlohmann-json3-dev \
+            libdw-dev libbfd-dev libbackward-cpp-dev \
+            libarchive-dev libfmt-dev libcurl4-openssl-dev rsync
+          ccache --max-size 1G
+          ccache --zero-stats
+
+      - name: Prepare environment variables
+        shell: bash
+        env:
+          KRATE_GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          KRATE_MANIFEST_KEY_ZEN: ${{ secrets.KRATE_MANIFEST_KEY_ZEN }}
+          KRATE_MANIFEST_KEY_ZENFW: ${{ secrets.KRATE_MANIFEST_KEY_ZENFW }}
+          KRATE_MANIFEST_KEY_SETUP: ${{ secrets.KRATE_MANIFEST_KEY_SETUP }}
+          KRATE_MANIFEST_KEY_APPLICATIONS: ${{ secrets.KRATE_MANIFEST_KEY_APPLICATIONS }}
+        run: |
+          write_env() {
+            local key="$1"
+            local value="$2"
+            if [[ "${value}" == *$'\n'* ]]; then
+              {
+                echo "${key}<<EOF"
+                printf '%s\n' "${value}"
+                echo "EOF"
+              } >> "$GITHUB_ENV"
+            else
+              echo "${key}=${value}" >> "$GITHUB_ENV"
+            fi
+          }
+
+          write_pem_env() {
+            local key="$1"
+            local value="$2"
+            {
+              echo "${key}<<EOF"
+              printf '%s\n' "${value}"
+              echo "EOF"
+            } >> "$GITHUB_ENV"
+          }
+
+          clone_url() {
+            printf 'https://x-access-token:%s@github.com/krate-client/%s.git' \
+              "${KRATE_GITHUB_TOKEN}" "$1"
+          }
+
+          write_env KRATE_CONSOLE_REPO "$(clone_url console)"
+          write_env KRATE_SETUP_REPO "$(clone_url setup)"
+          write_env KRATE_WEB_REPO "$(clone_url web)"
+          write_env KRATE_APPS_OFFICIAL_REPO "$(clone_url apps-official)"
+          write_env KRATE_APPS_OFFICIAL_SOURCE_REPO "$(clone_url apps-official-source)"
+          write_env KRATE_APPS_COMMUNITY_REPO "$(clone_url apps-community)"
+          write_env KRATE_PLUGINS_REPO "$(clone_url apps-extensions)"
+          write_pem_env KRATE_MANIFEST_KEY_ZEN "${KRATE_MANIFEST_KEY_ZEN}"
+          write_pem_env KRATE_MANIFEST_KEY_ZENFW "${KRATE_MANIFEST_KEY_ZENFW}"
+          write_pem_env KRATE_MANIFEST_KEY_SETUP "${KRATE_MANIFEST_KEY_SETUP}"
+          write_pem_env KRATE_MANIFEST_KEY_APPLICATIONS "${KRATE_MANIFEST_KEY_APPLICATIONS}"
+          echo "GITHUB_TOKEN=${KRATE_GITHUB_TOKEN}" >> "$GITHUB_ENV"
+          echo "KRATE_REPO_DIR=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
+          echo "KRATE_PRERELEASE_IDENTIFIER_FILE=${GITHUB_WORKSPACE}/prerelease-identifier.txt" >> "$GITHUB_ENV"
+          echo "KRATE_RELEASE_CHANNEL=${{ inputs.channel }}" >> "$GITHUB_ENV"
+
+      - name: Verify manifest signing keys
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path(".tooling/tools/catalog")))
+          from catalog_crypto import prepare_signing_key_pem
+          failed = 0
+          for name in (
+              "KRATE_MANIFEST_KEY_ZEN",
+              "KRATE_MANIFEST_KEY_ZENFW",
+              "KRATE_MANIFEST_KEY_SETUP",
+              "KRATE_MANIFEST_KEY_APPLICATIONS",
+          ):
+              key = os.environ.get(name, "")
+              if not key.strip():
+                  print(f"ERROR: {name} is empty", file=sys.stderr)
+                  failed = 1
+                  continue
+              try:
+                  prepare_signing_key_pem(key)
+                  print(f"OK {name}")
+              except Exception as exc:
+                  print(f"ERROR: {name}: {exc}", file=sys.stderr)
+                  failed = 1
+          raise SystemExit(failed)
+          PY
+
+      - name: Verify no private keys in release tools
+        run: |
+          if find .tooling -name '*.pem' ! -name '*.pub.pem' | grep -q .; then
+            echo "ERROR: private PEM files found in tooling" >&2
+            find .tooling -name '*.pem' ! -name '*.pub.pem'
+            exit 1
+          fi
+
+      - name: Compute package version
+        id: version
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! COMPUTED="$(.tooling/scripts/compute-krate-version.sh)"; then
+            echo "ERROR: compute-krate-version.sh failed (see messages above)" >&2
+            exit 1
+          fi
+          echo "${COMPUTED}"
+          while IFS='=' read -r key value; do
+            [[ -z "${key}" ]] && continue
+            echo "${key}=${value}" >> "$GITHUB_ENV"
+            case "${key}" in
+              KRATE_VERSION) echo "krate_version=${value}" >> "$GITHUB_OUTPUT" ;;
+              PACKAGE_VERSION) echo "package_version=${value}" >> "$GITHUB_OUTPUT" ;;
+              KRATE_CODENAME) echo "codename=${value}" >> "$GITHUB_OUTPUT" ;;
+            esac
+          done <<< "${COMPUTED}"
+
+      - name: Compute release metadata
+        id: release-meta
+        shell: bash
+        run: |
+          if [[ "${{ inputs.channel }}" == "pre-release" ]]; then
+            IDENTIFIER="$(tr -d '\r\n' < prerelease-identifier.txt | tr '[:upper:]' '[:lower:]')"
+            RELEASE_TAG="v${KRATE_VERSION}-${IDENTIFIER}.${{ github.run_number }}"
+            RELEASE_PRERELEASE="true"
+            RELEASE_NAME="KRATE ${KRATE_VERSION} ${IDENTIFIER}.${{ github.run_number }}"
+          else
+            RELEASE_TAG="v${KRATE_VERSION}"
+            RELEASE_PRERELEASE="false"
+            RELEASE_NAME="KRATE ${KRATE_VERSION}"
+          fi
+          {
+            echo "RELEASE_TAG=${RELEASE_TAG}"
+            echo "RELEASE_PRERELEASE=${RELEASE_PRERELEASE}"
+            echo "RELEASE_NAME=${RELEASE_NAME}"
+          } >> "$GITHUB_ENV"
+          {
+            echo "release_tag=${RELEASE_TAG}"
+            echo "release_prerelease=${RELEASE_PRERELEASE}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-debian-trixie-amd64-console-${{ env.KRATE_CONSOLE_SHA }}-setup-${{ env.KRATE_SETUP_SHA }}
+          restore-keys: |
+            ccache-debian-trixie-amd64-console-${{ env.KRATE_CONSOLE_SHA }}-
+            ccache-debian-trixie-amd64-
+
+      - name: Restore console CMake cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .ci-release-work/build-zenfw
+            .ci-release-work/build-zen
+            .ci-release-work/zenfw-prefix
+            .ci-release-work/fetchcontent
+          key: cmake-console-debian-trixie-amd64-${{ env.KRATE_CONSOLE_SHA }}-integrity-on-lto-on
+          restore-keys: |
+            cmake-console-debian-trixie-amd64-${{ env.KRATE_CONSOLE_SHA }}-
+            cmake-console-debian-trixie-amd64-
+
+      - name: Restore setup CMake cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .ci-release-work/build-setup
+          key: cmake-setup-debian-trixie-amd64-${{ env.KRATE_SETUP_SHA }}-console-${{ env.KRATE_CONSOLE_SHA }}
+          restore-keys: |
+            cmake-setup-debian-trixie-amd64-${{ env.KRATE_SETUP_SHA }}-
+            cmake-setup-debian-trixie-amd64-
+
+      - name: Build monolithic deb
+        # v1: single enabled platform from tooling/platforms.json (trixie).
+        # Future: matrix over krate_platforms_enabled_codenames, merge dist/deb before manifest.
+        shell: bash
+        env:
+          CCACHE_DIR: .ccache
+          KRATE_DEB_CMAKE_GENERATOR: Ninja
+        run: |
+          mkdir -p "${GITHUB_WORKSPACE}/dist/deb" "${GITHUB_WORKSPACE}/.ci-release-work"
+          .tooling/scripts/build-deb.sh \
+            --version "${PACKAGE_VERSION}" \
+            --workdir "${GITHUB_WORKSPACE}/.ci-release-work" \
+            --output-dir "${GITHUB_WORKSPACE}/dist/deb"
+          ccache --show-stats
+          ls -la "${GITHUB_WORKSPACE}/dist/deb/"
+
+      - name: Save ccache
+        uses: actions/cache/save@v4
+        if: success()
+        with:
+          path: .ccache
+          key: ccache-debian-trixie-amd64-console-${{ env.KRATE_CONSOLE_SHA }}-setup-${{ env.KRATE_SETUP_SHA }}
+
+      - name: Save console CMake cache
+        uses: actions/cache/save@v4
+        if: success()
+        with:
+          path: |
+            .ci-release-work/build-zenfw
+            .ci-release-work/build-zen
+            .ci-release-work/zenfw-prefix
+            .ci-release-work/fetchcontent
+          key: cmake-console-debian-trixie-amd64-${{ env.KRATE_CONSOLE_SHA }}-integrity-on-lto-on
+
+      - name: Save setup CMake cache
+        uses: actions/cache/save@v4
+        if: success()
+        with:
+          path: .ci-release-work/build-setup
+          key: cmake-setup-debian-trixie-amd64-${{ env.KRATE_SETUP_SHA }}-console-${{ env.KRATE_CONSOLE_SHA }}
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: krate-deb-${{ env.PACKAGE_VERSION }}
+          path: dist/deb/*.deb
+          if-no-files-found: error
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd dist/deb
+          sha256sum *.deb > SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Generate release manifest
+        shell: bash
+        run: |
+          .tooling/scripts/generate-krate-release-manifest.sh \
+            --output-dir dist/deb \
+            --version "${KRATE_VERSION}" \
+            --tag "${RELEASE_TAG}" \
+            --channel "${{ inputs.channel }}"
+          cat dist/deb/krate-release.json
+
+      - name: Generate release notes
+        shell: bash
+        run: |
+          .tooling/scripts/generate-krate-release-notes.sh \
+            --manifest dist/deb/krate-release.json \
+            --output dist/deb/RELEASE_NOTES.md
+          cat dist/deb/RELEASE_NOTES.md
+
+      - name: Upload checksum and manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: krate-metadata-${{ env.PACKAGE_VERSION }}
+          path: |
+            dist/deb/SHA256SUMS
+            dist/deb/krate-release.json
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          prerelease: ${{ env.RELEASE_PRERELEASE }}
+          generate_release_notes: false
+          body_path: dist/deb/RELEASE_NOTES.md
+          files: |
+            dist/deb/*.deb
+            dist/deb/SHA256SUMS
+            dist/deb/krate-release.json
+
+      - name: Publish changelog to docs
+        shell: bash
+        env:
+          GIT_AUTHOR: ${{ secrets.GIT_AUTHOR }}
+          GIT_EMAIL: ${{ secrets.GIT_EMAIL }}
+        run: |
+          clone_url() {
+            printf 'https://x-access-token:%s@github.com/krate-client/docs.git' \
+              "${GITHUB_TOKEN}"
+          }
+          .tooling/scripts/publish-krate-docs-changelog.sh \
+            --input dist/deb/RELEASE_NOTES.md \
+            --docs-repo "$(clone_url)" \
+            --version "${KRATE_VERSION}" \
+            --tag "${RELEASE_TAG}" \
+            --channel "${{ inputs.channel }}"
+
+  install-test:
+    needs: build-deb
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+    steps:
+      - name: Download deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: krate-deb-${{ needs.build-deb.outputs.package_version }}
+          path: dist
+
+      - name: Install package on a clean Debian 13
+        shell: bash
+        run: |
+          apt-get update
+          # sudo creates /etc/sudoers.d — closer to a real server than the bare container.
+          apt-get install -y sudo
+          apt-get install -y ./dist/*.deb
+
+      - name: Smoke test installed binaries
+        shell: bash
+        run: |
+          set -x
+          test -x /opt/Krate/bin/zen
+          test -x /opt/Krate/bin/zenfw
+          test -x /opt/Krate/bin/setup
+          # Version output is best-effort: full runtime (server/socket) is not provisioned in CI.
+          /opt/Krate/bin/zen --version || true
