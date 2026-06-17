@@ -44,7 +44,7 @@ zen pull --check    # report available update without installing
 zen pull            # download and install
 ```
 
-Set `update_channel` in `/etc/krate/environment.d/zenfw.conf` (or `zenfw.conf.local`) to choose **stable** or **pre-release** updates.
+Set `update_channel` in `/etc/krate/environment.d/zenfw.conf.local` (written by setup from `branch=` in `krate.conf`) to choose **main** (stable) or **beta** (pre-release) updates.
 
 ## What is in the package
 
