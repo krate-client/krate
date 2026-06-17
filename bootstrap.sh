@@ -1,0 +1,306 @@
+#!/usr/bin/env bash
+# Install KRATE from the latest GitHub release (.deb).
+# Usage:
+#   sudo ./bootstrap.sh           # latest stable release
+#   sudo ./bootstrap.sh --beta    # latest pre-release (temporary flag)
+set -euo pipefail
+
+KRATE_RELEASES_REPO="${KRATE_RELEASES_REPO:-krate-client/krate}"
+CHANNEL="stable"
+WORK_DIR=""
+
+usage() {
+	cat <<'EOF'
+Usage: bootstrap.sh [--beta]
+
+Detect the host OS, download the matching krate .deb from the latest GitHub
+release, verify its SHA256 checksum, and install it with apt.
+
+  (default)   Latest stable release
+  --beta      Latest pre-release (flag will be removed in a future version)
+
+Requires: root, curl, python3, sha256sum, apt-get
+EOF
+}
+
+cleanup() {
+	if [[ -n "${WORK_DIR}" && -d "${WORK_DIR}" ]]; then
+		rm -rf "${WORK_DIR}"
+	fi
+}
+trap cleanup EXIT
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	--beta)
+		CHANNEL="pre-release"
+		shift
+		;;
+	-h | --help)
+		usage
+		exit 0
+		;;
+	*)
+		echo "ERROR: unknown argument: $1" >&2
+		usage >&2
+		exit 1
+		;;
+	esac
+done
+
+if [[ "${EUID}" -ne 0 ]]; then
+	echo "ERROR: run as root (e.g. sudo $0)" >&2
+	exit 1
+fi
+
+for cmd in curl python3 sha256sum apt-get; do
+	if ! command -v "${cmd}" >/dev/null 2>&1; then
+		echo "ERROR: required command not found: ${cmd}" >&2
+		exit 1
+	fi
+done
+
+WORK_DIR="$(mktemp -d /tmp/krate-bootstrap.XXXXXX)"
+
+echo "==> Detecting host OS"
+mapfile -t _os < <(python3 - <<'PY'
+import os
+import re
+import subprocess
+import sys
+
+
+def read_os_release():
+    data = {}
+    try:
+        with open("/etc/os-release", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                data[key] = value.strip().strip('"')
+    except OSError:
+        pass
+    return data
+
+
+def version_parts(value: str):
+    parts = []
+    for chunk in re.split(r"[.~+-]", value):
+        if chunk.isdigit():
+            parts.append(int(chunk))
+        elif chunk:
+            parts.append(chunk)
+    return parts
+
+
+def version_ge(left: str, right: str) -> bool:
+    a = version_parts(left)
+    b = version_parts(right)
+    for i in range(max(len(a), len(b))):
+        av = a[i] if i < len(a) else 0
+        bv = b[i] if i < len(b) else 0
+        if isinstance(av, int) and isinstance(bv, int):
+            if av != bv:
+                return av > bv
+            continue
+        if str(av) != str(bv):
+            return str(av) > str(bv)
+    return True
+
+
+rel = read_os_release()
+os_id = rel.get("ID", "").lower()
+version = rel.get("VERSION_ID", "")
+codename = rel.get("VERSION_CODENAME", "") or rel.get("DEBIAN_CODENAME", "")
+if not codename:
+    try:
+        codename = subprocess.check_output(["lsb_release", "-cs"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        codename = ""
+
+pretty = rel.get("PRETTY_NAME", "").lower()
+if os_id == "debian" and codename == "forky" and (version == "13" or "trixie" in pretty):
+    codename = "trixie"
+
+arch = os.uname().machine
+print(os_id)
+print(version)
+print(codename)
+print(arch)
+PY
+)
+OS_ID="${_os[0]:-}"
+OS_VERSION="${_os[1]:-}"
+OS_CODENAME="${_os[2]:-}"
+OS_ARCH="${_os[3]:-}"
+
+if [[ -z "${OS_ID}" || -z "${OS_ARCH}" ]]; then
+	echo "ERROR: could not detect OS (missing /etc/os-release?)" >&2
+	exit 1
+fi
+
+echo "    ${OS_ID} ${OS_VERSION} (${OS_CODENAME:-unknown}) ${OS_ARCH}"
+
+echo "==> Resolving latest ${CHANNEL} release"
+RELEASE_JSON="${WORK_DIR}/releases.json"
+curl -fsSL \
+	-H "Accept: application/vnd.github+json" \
+	-H "X-GitHub-Api-Version: 2022-11-28" \
+	"https://api.github.com/repos/${KRATE_RELEASES_REPO}/releases?per_page=30" \
+	-o "${RELEASE_JSON}"
+
+mapfile -t _pick < <(python3 - "${CHANNEL}" "${RELEASE_JSON}" <<'PY'
+import json
+import sys
+
+channel = sys.argv[1]
+want_prerelease = channel == "pre-release"
+with open(sys.argv[2], encoding="utf-8") as handle:
+    releases = json.load(handle)
+
+for release in releases:
+    if release.get("draft"):
+        continue
+    if bool(release.get("prerelease")) != want_prerelease:
+        continue
+    tag = release.get("tag_name", "")
+    manifest_url = ""
+    for asset in release.get("assets", []):
+        if asset.get("name") == "krate-release.json":
+            manifest_url = asset.get("browser_download_url", "")
+            break
+    if not tag or not manifest_url:
+        continue
+    print(tag)
+    print(manifest_url)
+    sys.exit(0)
+
+print(f"ERROR: no {channel} release found on GitHub", file=sys.stderr)
+sys.exit(1)
+PY
+)
+RELEASE_TAG="${_pick[0]}"
+MANIFEST_URL="${_pick[1]}"
+
+echo "    release ${RELEASE_TAG}"
+
+MANIFEST_PATH="${WORK_DIR}/krate-release.json"
+curl -fsSL "${MANIFEST_URL}" -o "${MANIFEST_PATH}"
+
+mapfile -t _asset < <(python3 - \
+	"${MANIFEST_PATH}" "${OS_ID}" "${OS_VERSION}" "${OS_CODENAME}" "${OS_ARCH}" <<'PY'
+import json
+import re
+import sys
+
+
+def version_parts(value: str):
+    parts = []
+    for chunk in re.split(r"[.~+-]", value):
+        if chunk.isdigit():
+            parts.append(int(chunk))
+        elif chunk:
+            parts.append(chunk)
+    return parts
+
+
+def version_ge(left: str, right: str) -> bool:
+    a = version_parts(left)
+    b = version_parts(right)
+    for i in range(max(len(a), len(b))):
+        av = a[i] if i < len(a) else 0
+        bv = b[i] if i < len(b) else 0
+        if isinstance(av, int) and isinstance(bv, int):
+            if av != bv:
+                return av > bv
+            continue
+        if str(av) != str(bv):
+            return str(av) > str(bv)
+    return True
+
+
+manifest_path, os_id, os_version, os_codename, arch = sys.argv[1:6]
+with open(manifest_path, encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+supported = False
+for entry in manifest.get("supported_os", []):
+    if entry.get("id", "").lower() != os_id.lower():
+        continue
+    min_version = entry.get("min_version", "")
+    if not min_version or version_ge(os_version, min_version):
+        supported = True
+        break
+
+if not supported:
+    expected = manifest.get("supported_os", [])
+    hint = ", ".join(
+        f"{e.get('id')}>={e.get('min_version')}" for e in expected if isinstance(e, dict)
+    ) or "see krate-release.json"
+    print(
+        f"ERROR: host {os_id} {os_version} is not supported (expected: {hint})",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+platforms = manifest.get("platforms", {})
+match = None
+for key, entry in platforms.items():
+    if not isinstance(entry, dict):
+        continue
+    if entry.get("codename", "").lower() != os_codename.lower():
+        continue
+    if entry.get("arch", "amd64") != arch:
+        continue
+    match = (key, entry)
+    break
+
+if match is None:
+    keys = ", ".join(sorted(platforms))
+    print(
+        f"ERROR: no .deb for codename={os_codename} arch={arch} "
+        f"(manifest platforms: {keys or 'none'})",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+_, entry = match
+filename = entry.get("filename", "")
+sha256 = entry.get("sha256", "")
+if not filename or not sha256:
+    print("ERROR: manifest platform entry missing filename or sha256", file=sys.stderr)
+    sys.exit(1)
+
+print(entry["filename"])
+print(entry["sha256"])
+print(manifest.get("version", ""))
+PY
+)
+DEB_NAME="${_asset[0]}"
+DEB_SHA="${_asset[1]}"
+PACKAGE_VERSION="${_asset[2]}"
+
+echo "    package krate ${PACKAGE_VERSION} → ${DEB_NAME}"
+
+DOWNLOAD_URL="https://github.com/${KRATE_RELEASES_REPO}/releases/download/${RELEASE_TAG}/${DEB_NAME}"
+DEB_PATH="${WORK_DIR}/${DEB_NAME}"
+
+echo "==> Downloading ${DEB_NAME}"
+curl -fsSL "${DOWNLOAD_URL}" -o "${DEB_PATH}"
+
+echo "==> Verifying SHA256"
+actual="$(sha256sum "${DEB_PATH}" | awk '{print $1}')"
+if [[ "${actual}" != "${DEB_SHA}" ]]; then
+	echo "ERROR: checksum mismatch for ${DEB_NAME}" >&2
+	echo "  expected: ${DEB_SHA}" >&2
+	echo "  actual:   ${actual}" >&2
+	exit 1
+fi
+
+echo "==> Installing ${DEB_NAME}"
+DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEB_PATH}"
+
+echo "==> Done. KRATE ${PACKAGE_VERSION} (${RELEASE_TAG}) is installed."
+echo "    Next: configure /root/krate.conf and run setup"

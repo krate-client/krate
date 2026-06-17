@@ -18,6 +18,25 @@ This repository is the **entry point** for installing and updating KRATE on your
 
 ## Install
 
+### Quick install (recommended)
+
+On a supported Debian host, download and install the latest release in one step:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/krate-client/krate/main/bootstrap.sh -o bootstrap.sh
+sudo ./bootstrap.sh
+```
+
+Pre-release (testing):
+
+```bash
+sudo ./bootstrap.sh --beta
+```
+
+The script detects your OS, fetches `krate-release.json` from GitHub, downloads the matching `.deb`, verifies its SHA256 checksum, and installs it with `apt-get`.
+
+### Manual install
+
 Pick a build from [GitHub Releases](https://github.com/krate-client/krate/releases):
 
 | Channel | Tag pattern | Use when |
