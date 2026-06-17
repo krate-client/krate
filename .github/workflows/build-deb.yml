@@ -51,7 +51,6 @@ jobs:
             apps-official
             apps-official-source
             apps-community
-            apps-extensions
             docs
             krate
 
@@ -122,7 +121,6 @@ jobs:
           write_env KRATE_APPS_OFFICIAL_REPO "$(clone_url apps-official)"
           write_env KRATE_APPS_OFFICIAL_SOURCE_REPO "$(clone_url apps-official-source)"
           write_env KRATE_APPS_COMMUNITY_REPO "$(clone_url apps-community)"
-          write_env KRATE_PLUGINS_REPO "$(clone_url apps-extensions)"
           write_pem_env KRATE_MANIFEST_KEY_ZEN "${KRATE_MANIFEST_KEY_ZEN}"
           write_pem_env KRATE_MANIFEST_KEY_ZENFW "${KRATE_MANIFEST_KEY_ZENFW}"
           write_pem_env KRATE_MANIFEST_KEY_SETUP "${KRATE_MANIFEST_KEY_SETUP}"
