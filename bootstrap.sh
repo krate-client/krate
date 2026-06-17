@@ -375,6 +375,9 @@ if [[ "${actual}" != "${DEB_SHA}" ]]; then
 	exit 1
 fi
 
+echo "==> Updating packages"
+DEBIAN_FRONTEND=noninteractive apt-get update -y
+
 echo "==> Installing ${DEB_NAME}"
 DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEB_PATH}"
 
