@@ -61,7 +61,7 @@ for cmd in curl python3 sha256sum apt-get; do
 done
 
 WORK_DIR="$(mktemp -d /tmp/krate-bootstrap.XXXXXX)"
-
+clear
 echo "==> Detecting host OS"
 mapfile -t _os < <(python3 - <<'PY'
 import os
@@ -211,7 +211,8 @@ MANIFEST_PATH="${WORK_DIR}/krate-release.json"
 curl -fsSL "${MANIFEST_URL}" -o "${MANIFEST_PATH}"
 
 mapfile -t _asset < <(python3 - \
-	"${MANIFEST_PATH}" "${OS_ID}" "${OS_VERSION}" "${OS_CODENAME}" "${OS_ARCH}" "${PLATFORM_KEY}" <<'PY'
+	"${MANIFEST_PATH}" "${RELEASE_JSON}" "${RELEASE_TAG}" \
+	"${OS_ID}" "${OS_VERSION}" "${OS_CODENAME}" "${OS_ARCH}" "${PLATFORM_KEY}" <<'PY'
 import json
 import re
 import sys
@@ -242,9 +243,16 @@ def version_ge(left: str, right: str) -> bool:
     return True
 
 
-manifest_path, os_id, os_version, os_codename, arch, platform_key = sys.argv[1:7]
+manifest_path, releases_path, release_tag, os_id, os_version, os_codename, arch, platform_key = sys.argv[1:9]
 with open(manifest_path, encoding="utf-8") as handle:
     manifest = json.load(handle)
+with open(releases_path, encoding="utf-8") as handle:
+    releases = json.load(handle)
+
+release = next((item for item in releases if item.get("tag_name") == release_tag), None)
+if release is None:
+    print(f"ERROR: release {release_tag} not found in GitHub API response", file=sys.stderr)
+    sys.exit(1)
 
 supported = False
 for entry in manifest.get("supported_os", []):
@@ -296,27 +304,63 @@ if match is None:
     sys.exit(1)
 
 _, entry = match
-filename = entry.get("filename", "")
+manifest_filename = entry.get("filename", "")
 sha256 = entry.get("sha256", "")
-if not filename or not sha256:
+if not manifest_filename or not sha256:
     print("ERROR: manifest platform entry missing filename or sha256", file=sys.stderr)
     sys.exit(1)
 
-print(entry["filename"])
-print(entry["sha256"])
+assets = release.get("assets", [])
+download_url = ""
+asset_filename = manifest_filename
+
+for asset in assets:
+    if asset.get("name") == manifest_filename:
+        download_url = asset.get("browser_download_url", "")
+        asset_filename = manifest_filename
+        break
+
+if not download_url:
+    pattern = re.compile(
+        rf"^krate_.+-{re.escape(os_codename)}_{re.escape(arch)}\.deb$"
+    )
+    for asset in assets:
+        name = asset.get("name", "")
+        if pattern.match(name):
+            download_url = asset.get("browser_download_url", "")
+            asset_filename = name
+            break
+
+if not download_url:
+    names = ", ".join(asset.get("name", "") for asset in assets if asset.get("name", "").endswith(".deb"))
+    print(
+        f"ERROR: no GitHub asset for {manifest_filename} "
+        f"(release .deb assets: {names or 'none'})",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+print(asset_filename)
+print(download_url)
+print(sha256)
 print(manifest.get("version", ""))
+if asset_filename != manifest_filename:
+    print(
+        f"NOTE: using GitHub asset {asset_filename} (manifest lists {manifest_filename})",
+        file=sys.stderr,
+    )
 PY
 )
-if [[ ${#_asset[@]} -lt 3 ]]; then
+if [[ ${#_asset[@]} -lt 4 ]]; then
 	exit 1
 fi
 DEB_NAME="${_asset[0]}"
-DEB_SHA="${_asset[1]}"
-PACKAGE_VERSION="${_asset[2]}"
+DOWNLOAD_URL="${_asset[1]}"
+DEB_SHA="${_asset[2]}"
+PACKAGE_VERSION="${_asset[3]}"
 
 echo "    package krate ${PACKAGE_VERSION} → ${DEB_NAME}"
 
-DOWNLOAD_URL="https://github.com/${KRATE_RELEASES_REPO}/releases/download/${RELEASE_TAG}/${DEB_NAME}"
 DEB_PATH="${WORK_DIR}/${DEB_NAME}"
 
 echo "==> Downloading ${DEB_NAME}"
