@@ -124,17 +124,35 @@ pretty = rel.get("PRETTY_NAME", "").lower()
 if os_id == "debian" and codename == "forky" and (version == "13" or "trixie" in pretty):
     codename = "trixie"
 
-arch = os.uname().machine
+
+def normalize_arch(machine: str) -> str:
+    return {"x86_64": "amd64", "aarch64": "arm64"}.get(machine, machine)
+
+
+def krate_platform_key(os_id: str, os_version: str) -> str:
+    if os_id == "debian":
+        major = re.split(r"[.~+-]", os_version, maxsplit=1)[0]
+        if major.isdigit() and int(major) >= 13:
+            return "debian13-amd64"
+    if os_id == "ubuntu" and os_version == "24.04":
+        return "ubuntu24-amd64"
+    return ""
+
+
+arch = normalize_arch(os.uname().machine)
+platform_key = krate_platform_key(os_id, version)
 print(os_id)
 print(version)
 print(codename)
 print(arch)
+print(platform_key)
 PY
 )
 OS_ID="${_os[0]:-}"
 OS_VERSION="${_os[1]:-}"
 OS_CODENAME="${_os[2]:-}"
 OS_ARCH="${_os[3]:-}"
+PLATFORM_KEY="${_os[4]:-}"
 
 if [[ -z "${OS_ID}" || -z "${OS_ARCH}" ]]; then
 	echo "ERROR: could not detect OS (missing /etc/os-release?)" >&2
@@ -181,6 +199,9 @@ print(f"ERROR: no {channel} release found on GitHub", file=sys.stderr)
 sys.exit(1)
 PY
 )
+if [[ ${#_pick[@]} -lt 2 ]]; then
+	exit 1
+fi
 RELEASE_TAG="${_pick[0]}"
 MANIFEST_URL="${_pick[1]}"
 
@@ -190,7 +211,7 @@ MANIFEST_PATH="${WORK_DIR}/krate-release.json"
 curl -fsSL "${MANIFEST_URL}" -o "${MANIFEST_PATH}"
 
 mapfile -t _asset < <(python3 - \
-	"${MANIFEST_PATH}" "${OS_ID}" "${OS_VERSION}" "${OS_CODENAME}" "${OS_ARCH}" <<'PY'
+	"${MANIFEST_PATH}" "${OS_ID}" "${OS_VERSION}" "${OS_CODENAME}" "${OS_ARCH}" "${PLATFORM_KEY}" <<'PY'
 import json
 import re
 import sys
@@ -221,7 +242,7 @@ def version_ge(left: str, right: str) -> bool:
     return True
 
 
-manifest_path, os_id, os_version, os_codename, arch = sys.argv[1:6]
+manifest_path, os_id, os_version, os_codename, arch, platform_key = sys.argv[1:7]
 with open(manifest_path, encoding="utf-8") as handle:
     manifest = json.load(handle)
 
@@ -247,20 +268,28 @@ if not supported:
 
 platforms = manifest.get("platforms", {})
 match = None
-for key, entry in platforms.items():
-    if not isinstance(entry, dict):
-        continue
-    if entry.get("codename", "").lower() != os_codename.lower():
-        continue
-    if entry.get("arch", "amd64") != arch:
-        continue
-    match = (key, entry)
-    break
+
+if platform_key and platform_key in platforms:
+    candidate = platforms[platform_key]
+    if isinstance(candidate, dict) and candidate.get("arch", "amd64") == arch:
+        match = (platform_key, candidate)
+
+if match is None:
+    for key, candidate in platforms.items():
+        if not isinstance(candidate, dict):
+            continue
+        if candidate.get("codename", "").lower() != os_codename.lower():
+            continue
+        if candidate.get("arch", "amd64") != arch:
+            continue
+        match = (key, candidate)
+        break
 
 if match is None:
     keys = ", ".join(sorted(platforms))
     print(
-        f"ERROR: no .deb for codename={os_codename} arch={arch} "
+        f"ERROR: no .deb for platform={platform_key or '?'} "
+        f"codename={os_codename} arch={arch} "
         f"(manifest platforms: {keys or 'none'})",
         file=sys.stderr,
     )
@@ -278,6 +307,9 @@ print(entry["sha256"])
 print(manifest.get("version", ""))
 PY
 )
+if [[ ${#_asset[@]} -lt 3 ]]; then
+	exit 1
+fi
 DEB_NAME="${_asset[0]}"
 DEB_SHA="${_asset[1]}"
 PACKAGE_VERSION="${_asset[2]}"
@@ -304,3 +336,4 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y "${DEB_PATH}"
 
 echo "==> Done. KRATE ${PACKAGE_VERSION} (${RELEASE_TAG}) is installed."
 echo "    Next: configure /root/krate.conf and run setup"
+echo "    nano /root/krate.conf && ./setup"
