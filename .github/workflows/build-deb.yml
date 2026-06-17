@@ -85,6 +85,7 @@ jobs:
           KRATE_MANIFEST_KEY_ZENFW: ${{ secrets.KRATE_MANIFEST_KEY_ZENFW }}
           KRATE_MANIFEST_KEY_SETUP: ${{ secrets.KRATE_MANIFEST_KEY_SETUP }}
           KRATE_MANIFEST_KEY_APPLICATIONS: ${{ secrets.KRATE_MANIFEST_KEY_APPLICATIONS }}
+          KRATE_MANIFEST_KEY_LICENSE: ${{ secrets.KRATE_MANIFEST_KEY_LICENSE }}
         run: |
           write_env() {
             local key="$1"
@@ -125,6 +126,7 @@ jobs:
           write_pem_env KRATE_MANIFEST_KEY_ZENFW "${KRATE_MANIFEST_KEY_ZENFW}"
           write_pem_env KRATE_MANIFEST_KEY_SETUP "${KRATE_MANIFEST_KEY_SETUP}"
           write_pem_env KRATE_MANIFEST_KEY_APPLICATIONS "${KRATE_MANIFEST_KEY_APPLICATIONS}"
+          write_pem_env KRATE_MANIFEST_KEY_LICENSE "${KRATE_MANIFEST_KEY_LICENSE}"
           echo "GITHUB_TOKEN=${KRATE_GITHUB_TOKEN}" >> "$GITHUB_ENV"
           echo "KRATE_REPO_DIR=${GITHUB_WORKSPACE}" >> "$GITHUB_ENV"
           echo "KRATE_PRERELEASE_IDENTIFIER_FILE=${GITHUB_WORKSPACE}/prerelease-identifier.txt" >> "$GITHUB_ENV"
@@ -144,6 +146,7 @@ jobs:
               "KRATE_MANIFEST_KEY_ZENFW",
               "KRATE_MANIFEST_KEY_SETUP",
               "KRATE_MANIFEST_KEY_APPLICATIONS",
+              "KRATE_MANIFEST_KEY_LICENSE",
           ):
               key = os.environ.get(name, "")
               if not key.strip():
