@@ -262,6 +262,20 @@ jobs:
           ccache --show-stats
           ls -la "${GITHUB_WORKSPACE}/dist/deb/"
 
+      - name: Normalize pre-release .deb filenames for GitHub
+        shell: bash
+        run: |
+          # GitHub release assets may store '~' as '.'; align on-disk names before manifest/upload.
+          shopt -s nullglob
+          for deb in "${GITHUB_WORKSPACE}/dist/deb"/krate_*.deb; do
+            normalized="${deb//\~/.}"
+            if [[ "${deb}" != "${normalized}" ]]; then
+              mv "${deb}" "${normalized}"
+            fi
+          done
+          shopt -u nullglob
+          ls -la "${GITHUB_WORKSPACE}/dist/deb/"
+
       - name: Save ccache
         uses: actions/cache/save@v4
         if: success()
