@@ -198,9 +198,9 @@ jobs:
         run: |
           if [[ "${{ inputs.channel }}" == "pre-release" ]]; then
             IDENTIFIER="$(tr -d '\r\n' < prerelease-identifier.txt | tr '[:upper:]' '[:lower:]')"
-            RELEASE_TAG="v${KRATE_VERSION}-${IDENTIFIER}.${{ github.run_number }}"
+            RELEASE_TAG="v${KRATE_VERSION}-${IDENTIFIER}.${KRATE_PRERELEASE_NUMBER}"
             RELEASE_PRERELEASE="true"
-            RELEASE_NAME="KRATE ${KRATE_VERSION} ${IDENTIFIER}.${{ github.run_number }}"
+            RELEASE_NAME="KRATE ${KRATE_VERSION} ${IDENTIFIER}.${KRATE_PRERELEASE_NUMBER}"
           else
             RELEASE_TAG="v${KRATE_VERSION}"
             RELEASE_PRERELEASE="false"
