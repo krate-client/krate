@@ -8,13 +8,13 @@ This repository is the **entry point** for installing and updating KRATE on your
 
 ## Role in the stack
 
-| Layer | Responsibility |
-|---|---|
-| **`krate`** (this repo) | Package downloads, release tags, `krate-release.json` manifest |
-| [`console`](https://github.com/krate-client/console) | `zen` / `zenfw` — host operations and self-update |
-| [`setup`](https://github.com/krate-client/setup) | First-install wizard |
-| [`web`](https://github.com/krate-client/web) | HarmonyUI dashboard |
-| [`apps-official`](https://github.com/krate-client/apps-official) / [`apps-community`](https://github.com/krate-client/apps-community) | Application catalogs shipped inside the package |
+| Layer                                                                                                                                 | Responsibility                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **`krate`** (this repo)                                                                                                               | Package downloads, release tags, `krate-release.json` manifest |
+| [`console`](https://github.com/krate-client/console)                                                                                  | `zen` / `zenfw` — host operations and self-update              |
+| [`setup`](https://github.com/krate-client/setup)                                                                                      | First-install wizard                                           |
+| [`web`](https://github.com/krate-client/web)                                                                                          | HarmonyUI dashboard                                            |
+| [`apps-official`](https://github.com/krate-client/apps-official) / [`apps-community`](https://github.com/krate-client/apps-community) | Application catalogs shipped inside the package                |
 
 ## Install
 
@@ -23,14 +23,13 @@ This repository is the **entry point** for installing and updating KRATE on your
 On a supported Debian host, download and install the latest release in one step:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/krate-client/krate/main/bootstrap.sh -o bootstrap.sh
-sudo ./bootstrap.sh
+curl -fsSL https://raw.githubusercontent.com/krate-client/krate/main/bootstrap.sh | sudo bash
 ```
 
 Pre-release (testing):
 
 ```bash
-sudo ./bootstrap.sh --beta
+curl -fsSL https://raw.githubusercontent.com/krate-client/krate/main/bootstrap.sh | sudo bash -s -- --beta
 ```
 
 The script detects your OS, fetches `krate-release.json` from GitHub, downloads the matching `.deb`, verifies its SHA256 checksum, and installs it with `apt-get`.
@@ -39,9 +38,9 @@ The script detects your OS, fetches `krate-release.json` from GitHub, downloads 
 
 Pick a build from [GitHub Releases](https://github.com/krate-client/krate/releases):
 
-| Channel | Tag pattern | Use when |
-|---|---|---|
-| **stable** | `v1.2.3` | Production servers |
+| Channel         | Tag pattern      | Use when                 |
+| --------------- | ---------------- | ------------------------ |
+| **stable**      | `v1.2.3`         | Production servers       |
 | **pre-release** | `v1.2.3-alpha.N` | Testing upcoming changes |
 
 Each release ships one `.deb` per enabled platform (filename includes the OS codename, e.g. `krate_1.2.3-trixie_amd64.deb`), a `SHA256SUMS` file, and `krate-release.json`.
@@ -69,13 +68,13 @@ Set `update_channel` in `/etc/krate/environment.d/zenfw.conf.local` (written by 
 
 The `krate` `.deb` bundles zen, zenfw, setup, HarmonyUI, and official and community application catalogs.
 
-| Component | Repository |
-|---|---|
-| Console (zen / zenfw) | [console](https://github.com/krate-client/console) |
-| First-install wizard | [setup](https://github.com/krate-client/setup) |
-| Web interface | [web](https://github.com/krate-client/web) |
-| Official apps | [apps-official](https://github.com/krate-client/apps-official) |
-| Community apps | [apps-community](https://github.com/krate-client/apps-community) |
+| Component             | Repository                                                       |
+| --------------------- | ---------------------------------------------------------------- |
+| Console (zen / zenfw) | [console](https://github.com/krate-client/console)               |
+| First-install wizard  | [setup](https://github.com/krate-client/setup)                   |
+| Web interface         | [web](https://github.com/krate-client/web)                       |
+| Official apps         | [apps-official](https://github.com/krate-client/apps-official)   |
+| Community apps        | [apps-community](https://github.com/krate-client/apps-community) |
 
 Optional add-ons and plugins for individual apps live in [`apps-extensions`](https://github.com/krate-client/apps-extensions) — not bundled in the core package.
 
