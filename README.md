@@ -43,7 +43,7 @@ Pick a build from [GitHub Releases](https://github.com/krate-client/krate/releas
 | **stable**      | `v1.2.3`         | Production servers       |
 | **pre-release** | `v1.2.3-alpha.N` | Testing upcoming changes |
 
-Each release ships one `.deb` per enabled platform (filename includes the OS codename, e.g. `krate_1.2.3-trixie_amd64.deb`), a `SHA256SUMS` file, and `krate-release.json`.
+Each release ships one `.deb` per enabled platform (filename includes the OS codename, e.g. `krate_1.2.3-trixie_amd64.deb`), a `SHA256SUMS` file, and `krate-release.json`. Pre-release tags also include `TESTING.md` (maintained in [`prerelease/TESTING.md`](prerelease/TESTING.md)) with a manual testing checklist for beta testers.
 
 ```bash
 wget https://github.com/krate-client/krate/releases/download/<tag>/krate_<version>-trixie_amd64.deb
