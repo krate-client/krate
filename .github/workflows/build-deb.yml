@@ -317,6 +317,17 @@ jobs:
           sha256sum *.deb > SHA256SUMS
           sha256sum -c SHA256SUMS
 
+      - name: Stage pre-release testing checklist
+        if: inputs.channel == 'pre-release'
+        shell: bash
+        run: |
+          if [[ ! -f prerelease/TESTING.md ]]; then
+            echo "ERROR: prerelease/TESTING.md is required for pre-release builds" >&2
+            exit 1
+          fi
+          cp prerelease/TESTING.md dist/deb/TESTING.md
+          cat dist/deb/TESTING.md
+
       - name: Generate release manifest
         shell: bash
         run: |
@@ -345,6 +356,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub release
+        if: inputs.channel != 'pre-release'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
@@ -356,6 +368,21 @@ jobs:
             dist/deb/*.deb
             dist/deb/SHA256SUMS
             dist/deb/krate-release.json
+
+      - name: Publish GitHub release (pre-release)
+        if: inputs.channel == 'pre-release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          prerelease: ${{ env.RELEASE_PRERELEASE }}
+          generate_release_notes: false
+          body_path: dist/deb/RELEASE_NOTES.md
+          files: |
+            dist/deb/*.deb
+            dist/deb/SHA256SUMS
+            dist/deb/krate-release.json
+            dist/deb/TESTING.md
 
       - name: Publish changelog to docs
         shell: bash
