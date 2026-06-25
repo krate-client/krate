@@ -38,7 +38,7 @@ jobs:
 
       - name: Create GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.KRATE_RELEASE_BOT_APP_ID }}
           private-key: ${{ secrets.KRATE_RELEASE_BOT_PRIVATE_KEY }}
@@ -217,7 +217,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .ccache
           key: ccache-debian-trixie-amd64-console-${{ env.KRATE_CONSOLE_SHA }}-setup-${{ env.KRATE_SETUP_SHA }}
@@ -226,7 +226,7 @@ jobs:
             ccache-debian-trixie-amd64-
 
       - name: Restore console CMake cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             .ci-release-work/build-zenfw
@@ -239,7 +239,7 @@ jobs:
             cmake-console-debian-trixie-amd64-
 
       - name: Restore setup CMake cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             .ci-release-work/build-setup
@@ -279,14 +279,14 @@ jobs:
           ls -la "${GITHUB_WORKSPACE}/dist/deb/"
 
       - name: Save ccache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         if: success()
         with:
           path: .ccache
           key: ccache-debian-trixie-amd64-console-${{ env.KRATE_CONSOLE_SHA }}-setup-${{ env.KRATE_SETUP_SHA }}
 
       - name: Save console CMake cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         if: success()
         with:
           path: |
@@ -297,14 +297,14 @@ jobs:
           key: cmake-console-debian-trixie-amd64-${{ env.KRATE_CONSOLE_SHA }}-integrity-on-lto-on
 
       - name: Save setup CMake cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         if: success()
         with:
           path: .ci-release-work/build-setup
           key: cmake-setup-debian-trixie-amd64-${{ env.KRATE_SETUP_SHA }}-console-${{ env.KRATE_CONSOLE_SHA }}
 
       - name: Upload deb artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: krate-deb-${{ env.PACKAGE_VERSION }}
           path: dist/deb/*.deb
@@ -347,7 +347,7 @@ jobs:
           cat dist/deb/RELEASE_NOTES.md
 
       - name: Upload checksum and manifest artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: krate-metadata-${{ env.PACKAGE_VERSION }}
           path: |
@@ -357,7 +357,7 @@ jobs:
 
       - name: Publish GitHub release
         if: inputs.channel != 'pre-release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_NAME }}
@@ -371,7 +371,7 @@ jobs:
 
       - name: Publish GitHub release (pre-release)
         if: inputs.channel == 'pre-release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_NAME }}
