@@ -32,7 +32,7 @@ jobs:
           git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Checkout krate repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -55,7 +55,7 @@ jobs:
             krate
 
       - name: Checkout release tools
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: krate-client/tooling
           token: ${{ steps.app-token.outputs.token }}
