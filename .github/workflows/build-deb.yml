@@ -321,12 +321,12 @@ jobs:
         if: inputs.channel == 'pre-release'
         shell: bash
         run: |
-          if [[ ! -f prerelease/TESTING.md ]]; then
-            echo "ERROR: prerelease/TESTING.md is required for pre-release builds" >&2
-            exit 1
+          if [[ -f prerelease/TESTING.md ]] && grep -q '[^[:space:]]' prerelease/TESTING.md; then
+            cp prerelease/TESTING.md dist/deb/TESTING.md
+            cat dist/deb/TESTING.md
+          else
+            echo "Skipping TESTING.md (missing or empty)"
           fi
-          cp prerelease/TESTING.md dist/deb/TESTING.md
-          cat dist/deb/TESTING.md
 
       - name: Generate release manifest
         shell: bash
@@ -369,6 +369,23 @@ jobs:
             dist/deb/SHA256SUMS
             dist/deb/krate-release.json
 
+      - name: Prepare pre-release release assets
+        if: inputs.channel == 'pre-release'
+        id: prerelease_release_assets
+        shell: bash
+        run: |
+          {
+            echo "dist/deb/*.deb"
+            echo "dist/deb/SHA256SUMS"
+            echo "dist/deb/krate-release.json"
+            if [[ -f dist/deb/TESTING.md ]] && grep -q '[^[:space:]]' dist/deb/TESTING.md; then
+              echo "dist/deb/TESTING.md"
+            fi
+          } > release-files.txt
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          cat release-files.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub release (pre-release)
         if: inputs.channel == 'pre-release'
         uses: softprops/action-gh-release@v3
@@ -378,11 +395,7 @@ jobs:
           prerelease: ${{ env.RELEASE_PRERELEASE }}
           generate_release_notes: false
           body_path: dist/deb/RELEASE_NOTES.md
-          files: |
-            dist/deb/*.deb
-            dist/deb/SHA256SUMS
-            dist/deb/krate-release.json
-            dist/deb/TESTING.md
+          files: ${{ steps.prerelease_release_assets.outputs.files }}
 
       - name: Publish changelog to docs
         shell: bash

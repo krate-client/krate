@@ -3,7 +3,8 @@
 For **stable** releases, nothing is published from this folder.
 
 For **pre-release** builds (`KRATE_RELEASE_CHANNEL=pre-release`), CI copies
-[`TESTING.md`](TESTING.md) to the GitHub release as asset `TESTING.md`.
+[`TESTING.md`](TESTING.md) to the GitHub release as asset `TESTING.md` only when
+the file contains non-whitespace content. An empty or missing file is skipped.
 
 HarmonyUI (admin update page) can fetch and display this file when a beta/alpha
 update is available. The UI layout is still evolving; the release contract is
